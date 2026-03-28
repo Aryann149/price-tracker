@@ -11,22 +11,45 @@ async function extractProductInfo(html, url) {
           parts: [{
             text: `Extract product info from this e-commerce page HTML.
 URL: ${url}
-HTML: ${html.substring(0, 8000)}
 
-Reply with ONLY this JSON (no markdown, no extra text):
-{"name":"product name here","price":9999,"currency":"INR","image_url":null,"site":"amazon"}`
+HTML: ${html.substring(0, 6000)}
+
+Reply with ONLY this JSON, nothing else, no markdown:
+{"name":"product name","price":9999,"currency":"INR","image_url":null,"site":"amazon"}
+
+Rules:
+- price must be a plain number (no symbols)
+- image_url: use null if not found or if unsure
+- site: amazon, flipkart, croma, etc`
           }]
         }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
       },
       { headers: { 'Content-Type': 'application/json' } }
     );
 
     const text = response.data.candidates[0].content.parts[0].text.trim();
-    console.log('Gemini raw response:', text.substring(0, 300));
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    console.log('Gemini raw response:', text.substring(0, 200));
+    
+    // Clean the response
+    const clean = text.replace(/```json|```/g, '').trim();
+    
+    // Extract just the JSON object
+    const jsonMatch = clean.match(/\{[^{}]*\}/);
     if (!jsonMatch) throw new Error('No JSON found in response');
-    return JSON.parse(jsonMatch[0]);
+    
+    const parsed = JSON.parse(jsonMatch[0]);
+    
+    // Validate image_url — reject if it looks corrupted
+    if (parsed.image_url && (
+      parsed.image_url.includes('111111') ||
+      parsed.image_url.includes('3+3+3') ||
+      parsed.image_url.length > 500
+    )) {
+      parsed.image_url = null;
+    }
+    
+    return parsed;
   } catch (error) {
     console.error('Gemini extractProductInfo error:', error.response?.data || error.message);
     throw error;
@@ -48,7 +71,7 @@ Previous Price: ${product.current_price} ${product.currency}
 Be friendly and concise.`
           }]
         }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
+        generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
       },
       { headers: { 'Content-Type': 'application/json' } }
     );
