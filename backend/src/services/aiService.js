@@ -9,47 +9,37 @@ async function extractProductInfo(html, url) {
       {
         contents: [{
           parts: [{
-            text: `Extract product info from this e-commerce page HTML.
+            text: `You are a product data extractor. Extract ONLY these fields from the HTML below.
+
 URL: ${url}
+HTML: ${html.substring(0, 5000)}
 
-HTML: ${html.substring(0, 6000)}
+Respond with ONLY this exact JSON format, no extra text:
+{"name":"product name here","price":1234,"currency":"INR","image_url":null,"site":"amazon"}
 
-Reply with ONLY this JSON, nothing else, no markdown:
-{"name":"product name","price":9999,"currency":"INR","image_url":null,"site":"amazon"}
-
-Rules:
-- price must be a plain number (no symbols)
-- image_url: use null if not found or if unsure
-- site: amazon, flipkart, croma, etc`
+IMPORTANT:
+- price: number only, no symbols, no null
+- image_url: null always (do not extract)
+- Keep response under 100 tokens`
           }]
         }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
+        generationConfig: { 
+          temperature: 0.1, 
+          maxOutputTokens: 150,
+          responseMimeType: "application/json"
+        }
       },
       { headers: { 'Content-Type': 'application/json' } }
     );
 
     const text = response.data.candidates[0].content.parts[0].text.trim();
-    console.log('Gemini raw response:', text.substring(0, 200));
+    console.log('Gemini raw response:', text.substring(0, 300));
     
-    // Clean the response
     const clean = text.replace(/```json|```/g, '').trim();
-    
-    // Extract just the JSON object
     const jsonMatch = clean.match(/\{[^{}]*\}/);
     if (!jsonMatch) throw new Error('No JSON found in response');
     
-    const parsed = JSON.parse(jsonMatch[0]);
-    
-    // Validate image_url — reject if it looks corrupted
-    if (parsed.image_url && (
-      parsed.image_url.includes('111111') ||
-      parsed.image_url.includes('3+3+3') ||
-      parsed.image_url.length > 500
-    )) {
-      parsed.image_url = null;
-    }
-    
-    return parsed;
+    return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error('Gemini extractProductInfo error:', error.response?.data || error.message);
     throw error;
@@ -63,15 +53,14 @@ async function generateAlertMessage(product, priceData, alertType) {
       {
         contents: [{
           parts: [{
-            text: `Write a short 3-line price alert email body for:
+            text: `Write a 3-line price alert email for:
 Product: ${product.name}
 Alert: ${alertType}
 Best Price: ${priceData.bestPrice} ${product.currency} on ${priceData.bestSite}
-Previous Price: ${product.current_price} ${product.currency}
-Be friendly and concise.`
+Previous: ${product.current_price} ${product.currency}`
           }]
         }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+        generationConfig: { temperature: 0.7, maxOutputTokens: 150 }
       },
       { headers: { 'Content-Type': 'application/json' } }
     );
