@@ -85,7 +85,7 @@ export default function ProductCard({ product, onDelete, onUpdated }) {
           fontSize: 28
         }}>
           {product.image_url
-            ? <img src={product.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ? <img src={`https://images.weserv.nl/?url=${encodeURIComponent(product.image_url)}&w=72&h=72&fit=cover`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.target.style.display='none'; e.target.parentNode.innerHTML='📦'; }} />
             : '📦'}
         </div>
 
