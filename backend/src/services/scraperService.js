@@ -1,18 +1,12 @@
 const axios = require('axios');
 const { extractProductInfo } = require('./aiService');
 
-/**
- * Fetch HTML from a URL using ScraperAPI
- */
 async function fetchPage(url) {
-  const scraperUrl = `http://api.scraperapi.com?api_key=${process.env.SCRAPER_API_KEY}&url=${encodeURIComponent(url)}&country_code=in`;
+  const scraperUrl = `http://api.scraperapi.com?api_key=${process.env.SCRAPER_API_KEY}&url=${encodeURIComponent(url)}&country_code=in&render=true`;
   const response = await axios.get(scraperUrl, { timeout: 60000 });
   return response.data;
 }
 
-/**
- * Get the site name from a URL
- */
 function getSiteName(url) {
   if (url.includes('amazon')) return 'amazon';
   if (url.includes('flipkart')) return 'flipkart';
@@ -24,39 +18,24 @@ function getSiteName(url) {
   return 'other';
 }
 
-/**
- * Extract product info from a URL using ScraperAPI + AI
- */
 async function scrapeProduct(url) {
+  // Clean URL - remove all query parameters
+  url = url.split('?')[0].split('&')[0];
   try {
-    const cleanUrl = url.split('?')[0].split('&')[0];
-    const html = await fetchPage(cleanUrl);
-    const productInfo = await extractProductInfo(html, cleanUrl);
-    return {
-      ...productInfo,
-      site: getSiteName(url),
-      url
-    };
+    const html = await fetchPage(url);
+    const productInfo = await extractProductInfo(html, url);
+    return { ...productInfo, site: getSiteName(url), url };
   } catch (error) {
     console.error(`Failed to scrape ${url}:`, error.message);
     return null;
   }
 }
 
-/**
- * Search for the same product on other sites
- */
 async function searchOnOtherSites(productName) {
   const results = [];
   const searchSites = [
-    {
-      name: 'amazon',
-      searchUrl: `https://www.amazon.in/s?k=${encodeURIComponent(productName)}`
-    },
-    {
-      name: 'flipkart',
-      searchUrl: `https://www.flipkart.com/search?q=${encodeURIComponent(productName)}`
-    }
+    { name: 'amazon', searchUrl: `https://www.amazon.in/s?k=${encodeURIComponent(productName)}` },
+    { name: 'flipkart', searchUrl: `https://www.flipkart.com/search?q=${encodeURIComponent(productName)}` }
   ];
 
   for (const site of searchSites) {
@@ -64,18 +43,12 @@ async function searchOnOtherSites(productName) {
       const html = await fetchPage(site.searchUrl);
       const info = await extractProductInfo(html, site.searchUrl);
       if (info && info.price) {
-        results.push({
-          site: site.name,
-          price: info.price,
-          url: site.searchUrl,
-          currency: info.currency || 'INR'
-        });
+        results.push({ site: site.name, price: info.price, url: site.searchUrl, currency: info.currency || 'INR' });
       }
     } catch (err) {
       console.error(`Failed to search on ${site.name}:`, err.message);
     }
   }
-
   return results;
 }
 

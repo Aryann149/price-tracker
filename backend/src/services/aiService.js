@@ -9,24 +9,24 @@ async function extractProductInfo(html, url) {
       {
         contents: [{
           parts: [{
-            text: `You are a product data extractor. Extract ONLY these fields from the HTML below.
+            text: `Extract product details from this e-commerce HTML page.
 
 URL: ${url}
 HTML: ${html.substring(0, 5000)}
 
-Respond with ONLY this exact JSON format, no extra text:
-{"name":"product name here","price":1234,"currency":"INR","image_url":null,"site":"amazon"}
+Return ONLY a JSON object with these exact fields:
+- name: full product name (string)
+- price: selling price as number only, no symbols (number or null)
+- currency: "INR" for Indian sites (string)
+- image_url: main product image URL (string or null)
+- site: website name like "amazon" or "flipkart" (string)
 
-IMPORTANT:
-- price: number only, no symbols, no null
-- image_url: null always (do not extract)
-- Keep response under 100 tokens`
+JSON only, no explanation:`
           }]
         }],
         generationConfig: { 
           temperature: 0.1, 
-          maxOutputTokens: 150,
-          responseMimeType: "application/json"
+          maxOutputTokens: 500
         }
       },
       { headers: { 'Content-Type': 'application/json' } }
@@ -36,10 +36,17 @@ IMPORTANT:
     console.log('Gemini raw response:', text.substring(0, 300));
     
     const clean = text.replace(/```json|```/g, '').trim();
-    const jsonMatch = clean.match(/\{[^{}]*\}/);
+    const jsonMatch = clean.match(/\{[\s\S]*?\}/);
     if (!jsonMatch) throw new Error('No JSON found in response');
     
-    return JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Validate image_url
+    if (parsed.image_url && parsed.image_url.length > 300) {
+      parsed.image_url = null;
+    }
+
+    return parsed;
   } catch (error) {
     console.error('Gemini extractProductInfo error:', error.response?.data || error.message);
     throw error;
@@ -60,7 +67,7 @@ Best Price: ${priceData.bestPrice} ${product.currency} on ${priceData.bestSite}
 Previous: ${product.current_price} ${product.currency}`
           }]
         }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 150 }
+        generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
       },
       { headers: { 'Content-Type': 'application/json' } }
     );
