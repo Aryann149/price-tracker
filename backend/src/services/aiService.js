@@ -1,51 +1,75 @@
 const axios = require('axios');
+const cheerio = require('cheerio');
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
 
 async function extractProductInfo(html, url) {
   try {
+    const $ = cheerio.load(html);
+
+    // Remove scripts and styles
+    $('script, style, noscript').remove();
+
+    // Try to extract image directly from HTML
+    let imageUrl = null;
+    
+    // Amazon image patterns
+    const imgSelectors = [
+      '#landingImage',
+      '#imgBlkFront', 
+      '.a-dynamic-image',
+      '#main-image',
+      'img[data-old-hires]',
+      'img[data-a-dynamic-image]'
+    ];
+    
+    for (const selector of imgSelectors) {
+      const img = $(selector).first();
+      if (img.length) {
+        imageUrl = img.attr('data-old-hires') || 
+                   img.attr('src') || 
+                   null;
+        if (imageUrl && imageUrl.startsWith('http') && imageUrl.length < 300) break;
+        else imageUrl = null;
+      }
+    }
+
+    // Get clean text for AI
+    const cleanText = $('body').text().replace(/\s+/g, ' ').substring(0, 3000);
+
     const response = await axios.post(
       `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
       {
         contents: [{
           parts: [{
-            text: `Extract product details from this e-commerce HTML page.
+            text: `Extract product info from this e-commerce page text.
 
 URL: ${url}
-HTML: ${html.substring(0, 5000)}
+TEXT: ${cleanText}
 
-Return ONLY a JSON object with these exact fields:
-- name: full product name (string)
-- price: selling price as number only, no symbols (number or null)
-- currency: "INR" for Indian sites (string)
-- image_url: main product image URL (string or null)
-- site: website name like "amazon" or "flipkart" (string)
+Return ONLY this JSON (price as number, no symbols):
+{"name":"PRODUCT NAME","price":1234,"currency":"INR","site":"amazon"}
 
-JSON only, no explanation:`
+JSON only, nothing else.`
           }]
         }],
-        generationConfig: { 
-          temperature: 0.1, 
-          maxOutputTokens: 500
-        }
+        generationConfig: { temperature: 0, maxOutputTokens: 200 }
       },
       { headers: { 'Content-Type': 'application/json' } }
     );
 
     const text = response.data.candidates[0].content.parts[0].text.trim();
-    console.log('Gemini raw response:', text.substring(0, 300));
+    console.log('Gemini raw response:', text);
     
     const clean = text.replace(/```json|```/g, '').trim();
-    const jsonMatch = clean.match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) throw new Error('No JSON found in response');
+    const start = clean.indexOf('{');
+    const end = clean.lastIndexOf('}');
+    if (start === -1 || end === -1) throw new Error('No JSON found in response');
     
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(clean.substring(start, end + 1));
+    parsed.image_url = imageUrl;
 
-    // Validate image_url
-    if (parsed.image_url && parsed.image_url.length > 300) {
-      parsed.image_url = null;
-    }
-
+    console.log('Extracted product:', parsed);
     return parsed;
   } catch (error) {
     console.error('Gemini extractProductInfo error:', error.response?.data || error.message);
