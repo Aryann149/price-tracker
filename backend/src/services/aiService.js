@@ -33,7 +33,6 @@ function extractImageUrl($, url) {
       const src = img.attr('src') || img.attr('data-src');
       if (src && src.startsWith('http') && src.includes('rukminim')) return src;
     }
-    // CDN fallback
     let found = null;
     $('img').each((_, el) => {
       if (found) return;
@@ -44,8 +43,6 @@ function extractImageUrl($, url) {
   }
 
   if (isNykaa) {
-    // Nykaa product images are on their CDN: aakritist.com or nykaa CDN
-    // They're inside the product image gallery, NOT wysiwyg/editorial paths
     const nykaaSelectors = [
       'img.product-image',
       'div.product-image-wrapper img',
@@ -61,7 +58,6 @@ function extractImageUrl($, url) {
       const src = img.attr('src') || img.attr('data-src');
       if (src && src.startsWith('http') && !src.includes('wysiwyg') && !src.includes('uiTools')) return src;
     }
-    // CDN fallback — find any nykaa catalog/product image, skip editorial
     let found = null;
     $('img').each((_, el) => {
       if (found) return;
@@ -77,7 +73,7 @@ function extractImageUrl($, url) {
     if (found) return found;
   }
 
-  // Generic fallback for other sites
+  // Generic fallback
   let fallback = null;
   $('img').each((_, el) => {
     if (fallback) return;
@@ -92,35 +88,61 @@ function extractImageUrl($, url) {
   return fallback;
 }
 
+function buildPrompt(url, cleanText) {
+  const isFlipkart = url.includes('flipkart');
+  const isAmazon = url.includes('amazon');
+
+  let priceRule = '';
+
+  if (isFlipkart) {
+    priceRule = `IMPORTANT PRICE RULES FOR FLIPKART:
+- Flipkart shows multiple prices. You must return the BASE PRICE — the price a customer pays WITHOUT any bank offer, credit card discount, or EMI scheme.
+- The base price is usually labeled as the main selling price or "Special Price".
+- IGNORE any prices labeled: "with HDFC card", "with SBI card", "bank offer", "card discount", "no cost EMI", "exchange offer".
+- If you see something like "₹82,900" as the main price and "₹79,900 with HDFC card", return 82900.
+- Return only the price payable without any card or bank offer.`;
+  } else if (isAmazon) {
+    priceRule = `PRICE RULES FOR AMAZON:
+- Return the current selling price (the main price shown on the page).
+- IGNORE "M.R.P" or strikethrough prices — those are original prices.
+- If there's a "Deal price" or "Sale price", use that.
+- IGNORE cashback, coupon, or bank offer discounts.`;
+  } else {
+    priceRule = `PRICE RULES:
+- Return the CURRENT SELLING PRICE — what a customer actually pays at checkout without any special card, coupon, or bank offers.
+- IGNORE prices that require a specific bank card or coupon to avail.
+- If there's an MRP and a sale price, return the sale price.
+- If there's only one price, return that.`;
+  }
+
+  return `Extract product info from this e-commerce page.
+
+URL: ${url}
+
+${priceRule}
+
+PAGE TEXT:
+${cleanText}
+
+Return ONLY this JSON (price as a plain number, no currency symbols):
+{"name":"FULL PRODUCT NAME","price":1234,"currency":"INR","site":"flipkart"}
+
+JSON only. No explanation. No markdown.`;
+}
+
 async function extractProductInfo(html, url) {
   try {
     const $ = cheerio.load(html);
     $('script, style, noscript').remove();
 
     const imageUrl = extractImageUrl($, url);
-
     const cleanText = $('body').text().replace(/\s+/g, ' ').substring(0, 4000);
 
     const response = await axios.post(
       `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
       {
         contents: [{
-          parts: [{
-            text: `Extract product info from this e-commerce page text.
-
-URL: ${url}
-TEXT: ${cleanText}
-
-Rules:
-- price: the CURRENT SELLING PRICE (what you pay at checkout). If there's an MRP and a discounted price, use the DISCOUNTED price. If there's only one price, use that.
-- name: full product name
-- currency: INR for Indian sites, USD otherwise
-
-Return ONLY this JSON (price as number, no symbols):
-{"name":"PRODUCT NAME","price":1234,"currency":"INR","site":"nykaa"}
-
-JSON only, nothing else.`
-          }]
+          parts: [{ text: buildPrompt(url, cleanText) }]
         }],
         generationConfig: { temperature: 0, maxOutputTokens: 200 }
       },
